@@ -179,6 +179,8 @@ export function setPilot(
     dimming: oldPilot.dimming ?? 10,
     ...pilot,
   };
+  const isStateOnlyUpdate =
+    Object.keys(pilot).length === 1 && typeof pilot.state === "boolean";
 
   if (pilot.sceneId !== undefined) {
     newPilot.temp = undefined;
@@ -194,7 +196,9 @@ export function setPilot(
     ...oldPilot,
     ...newPilot,
   } as any;
-  return _setPilot(wiz, device, newPilot, (error) => {
+  const outboundPilot =
+    wiz.config.lastStatus && isStateOnlyUpdate ? { state: pilot.state } : newPilot;
+  return _setPilot(wiz, device, outboundPilot, (error) => {
     if (error !== null) {
       cachedPilot[device.mac] = oldPilot;
     }

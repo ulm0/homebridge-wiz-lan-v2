@@ -90,17 +90,9 @@ const setPilotQueue: { [key: string]: ((error: Error | null) => void)[] } = {};
 export function setPilot(
   wiz: HomebridgeWizLan,
   device: Device,
-  pilot: BulbPilot | SocketPilot,
+  pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callback: (error: Error | null) => void
 ) {
-  if (wiz.config.lastStatus) {
-    // Keep only the settings that cannot change the bulb color
-    Object.keys(pilot).forEach((key: string) => {
-      if (['sceneId', 'speed', 'temp', 'dimming', 'r', 'g', 'b'].includes(key)) {
-        delete pilot[key as keyof typeof pilot]
-      }
-    });
-  }
   const msg = JSON.stringify({
     method: "setPilot",
     env: "pro",
