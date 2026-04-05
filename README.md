@@ -1,4 +1,4 @@
-# homebridge-wiz-lan
+# homebridge-wiz-lan-v2
 Based off of kpsuperplane/homebridge-iotas
 
 ## Currently supports
@@ -18,8 +18,8 @@ Simple Configuration:
 
 ```javascript
 {
-    "platform": "WizSmarthome",
-    "name": "WizSmarthome",
+    "platform": "WizSmarthomeV2",
+    "name": "WizSmarthomeV2",
 }
 ```
 
@@ -27,7 +27,7 @@ Full configuration options:
 
 ```javascript
 {
-    "platform": "WizSmarthome",
+    "platform": "WizSmarthomeV2",
     "name": "Wiz",
 
     // [Optional] Port for bulbs to connect to your server
