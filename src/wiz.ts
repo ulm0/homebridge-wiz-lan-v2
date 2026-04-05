@@ -90,7 +90,7 @@ export default class HomebridgeWizLan {
         const accessories = Object.values(this.initializedAccessories);
         this.log.debug(`[Refresh] Pinging ${accessories.length} accessories...`);
         for (const accessory of accessories) {
-          accessory.getPilot().catch((error) => this.log.error(error));
+          accessory.getPilot().catch((error) => this.log.warn(error));
         }
       }, interval * 1000);
     }
