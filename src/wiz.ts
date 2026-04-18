@@ -86,13 +86,14 @@ export default class HomebridgeWizLan {
       this.log.info("[Refresh] Pings are off");
     } else {
       this.log.info(`[Refresh] Setting up ping for every ${interval} seconds`);
-      setInterval(() => {
+      const timer = setInterval(() => {
         const accessories = Object.values(this.initializedAccessories);
         this.log.debug(`[Refresh] Pinging ${accessories.length} accessories...`);
         for (const accessory of accessories) {
           accessory.getPilot().catch((error) => this.log.warn(error));
         }
       }, interval * 1000);
+      this.api.on("shutdown", () => clearInterval(timer));
     }
   }
 

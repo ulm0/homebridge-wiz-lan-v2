@@ -30,42 +30,18 @@ function getNetworkConfig({ config }: HomebridgeWizLan) {
 const getPilotQueue: {
   [key: string]: ((error: Error | null, pilot: any) => void)[];
 } = {};
-const getPilotDebounce: {
-  [key: string]: {
-    timeout: NodeJS.Timeout;
-    callbacks: ((error: Error | null, pilot: any) => void)[];
-  };
-} = {};
 export function getPilot<T>(
   wiz: HomebridgeWizLan,
   device: Device,
   callback: (error: Error | null, pilot: T) => void
 ) {
-  const timeout = setTimeout(() => {
-    const { callbacks } = getPilotDebounce[device.mac];
-    getPilotInternal(wiz, device, (error, pilot) => {
-      callbacks.map((cb) => cb(error, pilot));
-    });
-    delete getPilotDebounce[device.mac];
-  }, 50);
-  if (device.mac in getPilotDebounce) {
-    clearTimeout(getPilotDebounce[device.mac].timeout);
-  }
-  getPilotDebounce[device.mac] = {
-    timeout,
-    callbacks: [callback, ...(getPilotDebounce[device.mac]?.callbacks ?? [])],
-  };
-}
-function getPilotInternal<T>(
-  wiz: HomebridgeWizLan,
-  device: Device,
-  callback: (error: Error | null, pilot: T) => void
-) {
   if (device.mac in getPilotQueue) {
+    // Piggyback on the already in-flight request — no extra UDP packet sent
     getPilotQueue[device.mac].push(callback);
-  } else {
-    getPilotQueue[device.mac] = [callback];
+    return;
   }
+  // No in-flight request for this device — fire immediately
+  getPilotQueue[device.mac] = [callback];
   wiz.log.debug(`[getPilot] Sending getPilot to ${device.mac}`);
   wiz.socket.send(
     `{"method":"getPilot","params":{}}`,
@@ -86,42 +62,68 @@ function getPilotInternal<T>(
   );
 }
 
-const setPilotQueue: { [key: string]: ((error: Error | null) => void)[] } = {};
+const setPilotQueue: { [ip: string]: ((error: Error | null) => void)[] } = {};
+const setPilotPending: {
+  [ip: string]: {
+    wiz: HomebridgeWizLan;
+    device: Device;
+    pilot: Partial<BulbPilot> | Partial<SocketPilot>;
+    callbacks: ((error: Error | null) => void)[];
+  };
+} = {};
+
 export function setPilot(
   wiz: HomebridgeWizLan,
   device: Device,
   pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callback: (error: Error | null) => void
 ) {
+  if (device.ip in setPilotQueue) {
+    // In-flight: coalesce into pending, keeping all accumulated callbacks
+    const existing = setPilotPending[device.ip];
+    setPilotPending[device.ip] = {
+      wiz,
+      device,
+      pilot,
+      callbacks: [...(existing?.callbacks ?? []), callback],
+    };
+    return;
+  }
+  sendSetPilot(wiz, device, pilot, [callback]);
+}
+
+function sendSetPilot(
+  wiz: HomebridgeWizLan,
+  device: Device,
+  pilot: Partial<BulbPilot> | Partial<SocketPilot>,
+  callbacks: ((error: Error | null) => void)[]
+) {
   const msg = JSON.stringify({
     method: "setPilot",
     env: "pro",
-    params: Object.assign(
-      {
-        mac: device.mac,
-        src: "udp",
-      },
-      pilot,
-    ),
+    params: Object.assign({ mac: device.mac, src: "udp" }, pilot),
   });
-  if (device.ip in setPilotQueue) {
-    setPilotQueue[device.ip].push(callback);
-  } else {
-    setPilotQueue[device.ip] = [callback];
-  }
+  setPilotQueue[device.ip] = callbacks;
   wiz.log.debug(`[SetPilot][${device.ip}:${BROADCAST_PORT}] ${msg}`);
   wiz.socket.send(msg, BROADCAST_PORT, device.ip, (error: Error | null) => {
-    if (error !== null && device.mac in setPilotQueue) {
+    if (error !== null && device.ip in setPilotQueue) {
       wiz.log.debug(
-        `[Socket] Failed to send setPilot response to ${
-          device.mac
-        }: ${error.toString()}`
+        `[Socket] Failed to send setPilot to ${device.ip}: ${error.toString()}`
       );
-      const callbacks = setPilotQueue[device.mac];
-      delete setPilotQueue[device.mac];
-      callbacks.map((f) => f(error));
+      const cbs = setPilotQueue[device.ip];
+      delete setPilotQueue[device.ip];
+      cbs.forEach((f) => f(error));
+      flushPendingSetPilot(device.ip);
     }
   });
+}
+
+function flushPendingSetPilot(ip: string) {
+  if (ip in setPilotPending) {
+    const { wiz, device, pilot, callbacks } = setPilotPending[ip];
+    delete setPilotPending[ip];
+    sendSetPilot(wiz, device, pilot, callbacks);
+  }
 }
 
 export function createSocket(wiz: HomebridgeWizLan) {
@@ -215,6 +217,7 @@ export function registerDiscoveryHandler(
           callbacks.map((f) =>
             f(response.error ? new Error(response.error.toString()) : null)
           );
+          flushPendingSetPilot(ip);
         }
       }
     });

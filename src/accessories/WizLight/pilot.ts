@@ -151,6 +151,7 @@ export function getPilot(
   };
   const timeout = setTimeout(() => {
     if (device.mac in cachedPilot) {
+      wiz.log.warn(`[getPilot] No response from ${device.mac} within 1s, using cached state`);
       onDone(null, cachedPilot[device.mac]);
     } else {
       onDone(new Error("No response within 1s"), undefined as any);
@@ -171,6 +172,7 @@ export function setPilot(
 ) {
   const oldPilot = cachedPilot[device.mac];
   if (typeof oldPilot == "undefined") {
+    callback(new Error(`No cached state for ${device.mac}`));
     return;
   }
   const newPilot = {
