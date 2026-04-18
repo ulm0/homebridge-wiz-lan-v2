@@ -30,42 +30,18 @@ function getNetworkConfig({ config }: HomebridgeWizLan) {
 const getPilotQueue: {
   [key: string]: ((error: Error | null, pilot: any) => void)[];
 } = {};
-const getPilotDebounce: {
-  [key: string]: {
-    timeout: NodeJS.Timeout;
-    callbacks: ((error: Error | null, pilot: any) => void)[];
-  };
-} = {};
 export function getPilot<T>(
   wiz: HomebridgeWizLan,
   device: Device,
   callback: (error: Error | null, pilot: T) => void
 ) {
-  const timeout = setTimeout(() => {
-    const { callbacks } = getPilotDebounce[device.mac];
-    getPilotInternal(wiz, device, (error, pilot) => {
-      callbacks.map((cb) => cb(error, pilot));
-    });
-    delete getPilotDebounce[device.mac];
-  }, 50);
-  if (device.mac in getPilotDebounce) {
-    clearTimeout(getPilotDebounce[device.mac].timeout);
-  }
-  getPilotDebounce[device.mac] = {
-    timeout,
-    callbacks: [callback, ...(getPilotDebounce[device.mac]?.callbacks ?? [])],
-  };
-}
-function getPilotInternal<T>(
-  wiz: HomebridgeWizLan,
-  device: Device,
-  callback: (error: Error | null, pilot: T) => void
-) {
   if (device.mac in getPilotQueue) {
+    // Piggyback on the already in-flight request — no extra UDP packet sent
     getPilotQueue[device.mac].push(callback);
-  } else {
-    getPilotQueue[device.mac] = [callback];
+    return;
   }
+  // No in-flight request for this device — fire immediately
+  getPilotQueue[device.mac] = [callback];
   wiz.log.debug(`[getPilot] Sending getPilot to ${device.mac}`);
   wiz.socket.send(
     `{"method":"getPilot","params":{}}`,
