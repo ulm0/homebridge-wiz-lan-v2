@@ -172,6 +172,7 @@ export function setPilot(
 ) {
   const oldPilot = cachedPilot[device.mac];
   if (typeof oldPilot == "undefined") {
+    callback(new Error(`No cached state for ${device.mac}`));
     return;
   }
   const newPilot = {
