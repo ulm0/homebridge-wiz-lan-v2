@@ -71,6 +71,7 @@ export function getPilot(
   };
   const timeout = setTimeout(() => {
     if (device.mac in cachedPilot) {
+      wiz.log.warn(`[getPilot] No response from ${device.mac} within 1s, using cached state`);
       onDone(null, cachedPilot[device.mac]);
     } else {
       onDone(new Error("No response within 1s"), undefined as any);
