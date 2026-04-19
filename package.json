@@ -33,7 +33,7 @@
     "nodemon": "^3.1.11",
     "rimraf": "^6.1.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
   "bugs": {
     "url": "https://github.com/ulm0/homebridge-wiz-lan-v2/issues"
