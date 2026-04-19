@@ -28,7 +28,10 @@ function getNetworkConfig({ config }: HomebridgeWizLan) {
 }
 
 const getPilotQueue: {
-  [key: string]: ((error: Error | null, pilot: any) => void)[];
+  [mac: string]: {
+    callbacks: ((error: Error | null, pilot: any) => void)[];
+    timeout: NodeJS.Timeout;
+  };
 } = {};
 export function getPilot<T>(
   wiz: HomebridgeWizLan,
@@ -37,11 +40,18 @@ export function getPilot<T>(
 ) {
   if (device.mac in getPilotQueue) {
     // Piggyback on the already in-flight request — no extra UDP packet sent
-    getPilotQueue[device.mac].push(callback);
+    getPilotQueue[device.mac].callbacks.push(callback);
     return;
   }
   // No in-flight request for this device — fire immediately
-  getPilotQueue[device.mac] = [callback];
+  const timeout = setTimeout(() => {
+    if (device.mac in getPilotQueue) {
+      const { callbacks } = getPilotQueue[device.mac];
+      delete getPilotQueue[device.mac];
+      callbacks.forEach((f) => f(new Error(`No response from ${device.mac} within 1s`), null as any));
+    }
+  }, 1000);
+  getPilotQueue[device.mac] = { callbacks: [callback], timeout };
   wiz.log.debug(`[getPilot] Sending getPilot to ${device.mac}`);
   wiz.socket.send(
     `{"method":"getPilot","params":{}}`,
@@ -49,14 +59,13 @@ export function getPilot<T>(
     device.ip,
     (error: Error | null) => {
       if (error !== null && device.mac in getPilotQueue) {
+        clearTimeout(getPilotQueue[device.mac].timeout);
         wiz.log.debug(
-          `[Socket] Failed to send getPilot response to ${
-            device.mac
-          }: ${error.toString()}`
+          `[Socket] Failed to send getPilot to ${device.mac}: ${error.toString()}`
         );
-        const callbacks = getPilotQueue[device.mac];
+        const { callbacks } = getPilotQueue[device.mac];
         delete getPilotQueue[device.mac];
-        callbacks.map((f) => f(error, null));
+        callbacks.forEach((f) => f(error, null as any));
       }
     }
   );
@@ -205,9 +214,10 @@ export function registerDiscoveryHandler(
       } else if (response.method === "getPilot") {
         const mac = response.result.mac;
         if (mac in getPilotQueue) {
-          const callbacks = getPilotQueue[mac];
+          const { callbacks, timeout } = getPilotQueue[mac];
+          clearTimeout(timeout);
           delete getPilotQueue[mac];
-          callbacks.map((f) => f(null, response.result));
+          callbacks.forEach((f) => f(null, response.result));
         }
       } else if (response.method === "setPilot") {
         const ip = rinfo.address;
