@@ -111,19 +111,15 @@ export function getPilot(
   onSuccess: (pilot: Pilot) => void,
   onError: (error: Error) => void
 ) {
-  const { Service } = wiz;
-  const service = accessory.getService(Service.Lightbulb)!;
-  let callbacked = false;
-  const onDone = (error: Error | null, pilot: Pilot) => {
-    const shouldCallback = !callbacked;
-    callbacked = true;
+  _getPilot<Pilot>(wiz, device, (error, pilot) => {
     if (error !== null) {
-      if (shouldCallback) {
-        onError(error);
+      const cached = cachedPilot[device.mac];
+      if (cached) {
+        wiz.log.warn(`[getPilot] No response from ${device.mac} within 1s, using cached state`);
+        onSuccess(cached);
       } else {
-        service.getCharacteristic(wiz.Characteristic.On).updateValue(error);
+        onError(error);
       }
-      delete cachedPilot[device.mac];
       return;
     }
 
@@ -139,27 +135,10 @@ export function getPilot(
       disabledAdaptiveLightingCallback[device.mac]?.();
     }
     cachedPilot[device.mac] = {
-      // if no dimming info provided, use the last known on/off state
-      dimming: (pilot.state ?? old.state) ? 100 : 10,
+      dimming: (pilot.state ?? old?.state) ? 100 : 10,
       ...pilot
     };
-    if (shouldCallback) {
-      onSuccess(pilot);
-    } else {
-      updatePilot(wiz, accessory, device, pilot);
-    }
-  };
-  const timeout = setTimeout(() => {
-    if (device.mac in cachedPilot) {
-      wiz.log.warn(`[getPilot] No response from ${device.mac} within 1s, using cached state`);
-      onDone(null, cachedPilot[device.mac]);
-    } else {
-      onDone(new Error("No response within 1s"), undefined as any);
-    }
-  }, 1000);
-  _getPilot<Pilot>(wiz, device, (error, pilot) => {
-    clearTimeout(timeout);
-    onDone(error, pilot);
+    onSuccess(pilot);
   });
 }
 
