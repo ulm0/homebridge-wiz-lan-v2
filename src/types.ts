@@ -10,6 +10,7 @@ export interface Config extends PlatformConfig {
   ignoredDevices?: { host?: string; mac?: string }[];
   refreshInterval?: number;
   discoveryInterval?: number;
+<<<<<<< HEAD
   pingFailuresBeforeOffline?: number;
 }
 export interface Device {
