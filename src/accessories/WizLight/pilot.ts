@@ -1,6 +1,7 @@
 import { PlatformAccessory } from "homebridge";
 
 import HomebridgeWizLan from "../../wiz";
+import { isOffline, recordFailure, recordSuccess } from "../../util/offline";
 import { Device } from "../../types";
 import {
   getPilot as _getPilot,
@@ -50,7 +51,7 @@ export const disabledAdaptiveLightingCallback: {
   [mac: string]: () => void;
 } = {};
 
-function updatePilot(
+export function updatePilot(
   wiz: HomebridgeWizLan,
   accessory: PlatformAccessory,
   device: Device,
@@ -111,8 +112,21 @@ export function getPilot(
   onSuccess: (pilot: Pilot) => void,
   onError: (error: Error) => void
 ) {
+  if (isOffline(device.mac)) {
+    onError(new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+    return;
+  }
+
   _getPilot<Pilot>(wiz, device, (error, pilot) => {
     if (error !== null) {
+      const threshold = wiz.config.pingFailuresBeforeOffline ?? 3;
+      const newlyOffline = recordFailure(device.mac, threshold);
+      if (newlyOffline) {
+        wiz.log.warn(`[${device.mac}] Device is now offline (${threshold} missed pings)`);
+        updatePilot(wiz, accessory, device, new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+        onError(new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+        return;
+      }
       const cached = cachedPilot[device.mac];
       if (cached) {
         wiz.log.warn(`[getPilot] No response from ${device.mac} within 1s, using cached state`);
@@ -121,6 +135,11 @@ export function getPilot(
         onError(error);
       }
       return;
+    }
+
+    const cameBack = recordSuccess(device.mac);
+    if (cameBack) {
+      wiz.log.info(`[${device.mac}] Device is back online`);
     }
 
     const old = cachedPilot[device.mac];
@@ -138,6 +157,9 @@ export function getPilot(
       dimming: (pilot.state ?? old?.state) ? 100 : 10,
       ...pilot
     };
+    if (cameBack) {
+      updatePilot(wiz, accessory, device, pilot);
+    }
     onSuccess(pilot);
   });
 }
@@ -149,6 +171,10 @@ export function setPilot(
   pilot: Partial<Pilot>,
   callback: (error: Error | null) => void
 ) {
+  if (isOffline(device.mac)) {
+    callback(new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+    return;
+  }
   const oldPilot = cachedPilot[device.mac];
   if (typeof oldPilot == "undefined") {
     callback(new Error(`No cached state for ${device.mac}`));

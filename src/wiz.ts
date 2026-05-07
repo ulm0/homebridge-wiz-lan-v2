@@ -38,6 +38,7 @@ export default class HomebridgeWizLan {
       bindSocket(this, () => {
         registerDiscoveryHandler(this, this.tryAddDevice.bind(this));
         sendDiscoveryBroadcast(this);
+        this.initDiscoveryInterval();
       });
     });
 
@@ -80,9 +81,23 @@ export default class HomebridgeWizLan {
     return accessory;
   }
 
+  initDiscoveryInterval() {
+    const interval = Number(this.config.discoveryInterval ?? 0);
+    if (!(interval > 0)) {
+      this.log.info("[Discovery] Periodic re-discovery is off");
+    } else {
+      this.log.info(`[Discovery] Re-broadcasting every ${interval} seconds`);
+      const timer = setInterval(() => {
+        this.log.debug("[Discovery] Sending periodic discovery broadcast...");
+        sendDiscoveryBroadcast(this);
+      }, interval * 1000);
+      this.api.on("shutdown", () => clearInterval(timer));
+    }
+  }
+
   initRefreshInterval() {
     const interval = Number(this.config.refreshInterval ?? 0);
-    if (interval === 0) {
+    if (!(interval > 0)) {
       this.log.info("[Refresh] Pings are off");
     } else {
       this.log.info(`[Refresh] Setting up ping for every ${interval} seconds`);
@@ -167,9 +182,6 @@ export default class HomebridgeWizLan {
       // create a new accessory
       const accessory = new this.api.platformAccessory(name, uuid);
       accessory.context = device;
-      if (this.deviceShouldBeIgnored(device)) {
-        return;
-      }
       this.log.info("Adding new accessory:", name);
 
       this.initAccessory(accessory);
@@ -182,9 +194,6 @@ export default class HomebridgeWizLan {
       ]);
     } else {
       existingAccessory.context = device;
-      if (this.deviceShouldBeIgnored(device)) {
-        return;
-      }
       this.log.info(`Updating accessory: ${name}${name == existingAccessory.displayName ? "" : ` [formerly ${existingAccessory.displayName}]`}`);
       existingAccessory.displayName = name;
       this.api.updatePlatformAccessories([existingAccessory]);
