@@ -63,6 +63,16 @@ Full configuration options:
     // [Optional] Refresh/ping every accessory to get their latest state on an interval. Specify in seconds, 0 = off
     // Default: 0
     "refreshInterval": 60,
+
+    // [Optional] Re-broadcast the discovery message periodically to detect devices added after startup. Specify in seconds, 0 = off
+    // Default: 0
+    "discoveryInterval": 30,
+
+    // [Optional] Number of consecutive missed pings before a device is marked offline and shown as "No Response" in Apple Home.
+    // The device is automatically restored when it responds again.
+    // Only takes effect when refreshInterval > 0.
+    // Default: 3
+    "pingFailuresBeforeOffline": 3,
   }
 ```
 
