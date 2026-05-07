@@ -105,7 +105,11 @@ export default class HomebridgeWizLan {
         const accessories = Object.values(this.initializedAccessories);
         this.log.debug(`[Refresh] Pinging ${accessories.length} accessories...`);
         for (const accessory of accessories) {
-          accessory.getPilot().catch((error) => this.log.warn(error));
+          accessory.getPilot().catch((error) => {
+            // HapStatusError means the device was already logged as offline — skip redundant warn
+            if (typeof (error as any).hapStatus === "number") return;
+            this.log.warn(error);
+          });
         }
       }, interval * 1000);
       this.api.on("shutdown", () => clearInterval(timer));
