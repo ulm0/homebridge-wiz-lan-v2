@@ -69,8 +69,8 @@ Full configuration options:
     "discoveryInterval": 30,
 
     // [Optional] Number of consecutive missed pings before a device is marked offline and shown as "No Response" in Apple Home.
-    // The device is automatically restored when it responds again.
-    // Only takes effect when refreshInterval > 0.
+    // The plugin continues probing the device in the background — when it responds again it is automatically restored in Apple Home.
+    // Note: recovery detection requires refreshInterval > 0, otherwise the device will only recover when HomeKit actively queries it.
     // Default: 3
     "pingFailuresBeforeOffline": 3,
   }
