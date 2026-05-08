@@ -48,9 +48,12 @@ export function getPilot(
   onSuccess: (pilot: Pilot) => void,
   onError: (error: Error) => void
 ) {
-  if (isOffline(device.mac)) {
+  const deviceIsOffline = isOffline(device.mac);
+
+  if (deviceIsOffline) {
+    // Respond immediately so HomeKit doesn't wait for the UDP timeout
     onError(new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
-    return;
+    // Fall through to still probe the device so recovery is detected
   }
 
   _getPilot<Pilot>(wiz, device, (error, pilot) => {
@@ -60,7 +63,13 @@ export function getPilot(
       if (newlyOffline) {
         wiz.log.warn(`[${device.mac}] Device is now offline (${threshold} missed pings)`);
         updatePilot(wiz, accessory, device, new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
-        onError(new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+        if (!deviceIsOffline) {
+          onError(new wiz.api.hap.HapStatusError(wiz.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+        }
+        return;
+      }
+      if (deviceIsOffline) {
+        // Still offline — already responded above, nothing else to do
         return;
       }
       const cached = cachedPilot[device.mac];
@@ -76,10 +85,13 @@ export function getPilot(
     const cameBack = recordSuccess(device.mac);
     if (cameBack) {
       wiz.log.info(`[${device.mac}] Device is back online`);
+      // Push fresh state to HomeKit so "No Response" clears immediately
       updatePilot(wiz, accessory, device, pilot);
     }
     cachedPilot[device.mac] = pilot;
-    onSuccess(pilot);
+    if (!deviceIsOffline) {
+      onSuccess(pilot);
+    }
   });
 }
 
