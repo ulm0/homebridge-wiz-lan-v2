@@ -71,9 +71,11 @@ export function getPilot<T>(
   );
 }
 
-const setPilotQueue: { [ip: string]: ((error: Error | null) => void)[] } = {};
+const setPilotQueue: {
+  [mac: string]: { ip: string; complete: (error: Error | null) => void };
+} = {};
 const setPilotPending: {
-  [ip: string]: {
+  [mac: string]: {
     wiz: HomebridgeWizLan;
     device: Device;
     pilot: Partial<BulbPilot> | Partial<SocketPilot>;
@@ -87,10 +89,10 @@ export function setPilot(
   pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callback: (error: Error | null) => void
 ) {
-  if (device.ip in setPilotQueue) {
+  if (device.mac in setPilotQueue) {
     // In-flight: coalesce into pending, keeping all accumulated callbacks
-    const existing = setPilotPending[device.ip];
-    setPilotPending[device.ip] = {
+    const existing = setPilotPending[device.mac];
+    setPilotPending[device.mac] = {
       wiz,
       device,
       pilot,
@@ -107,30 +109,38 @@ function sendSetPilot(
   pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callbacks: ((error: Error | null) => void)[]
 ) {
+  const { ip, mac } = device;
   const msg = JSON.stringify({
     method: "setPilot",
     env: "pro",
     params: Object.assign({ mac: device.mac, src: "udp" }, pilot),
   });
-  setPilotQueue[device.ip] = callbacks;
-  wiz.log.debug(`[SetPilot][${device.ip}:${BROADCAST_PORT}] ${msg}`);
-  wiz.socket.send(msg, BROADCAST_PORT, device.ip, (error: Error | null) => {
-    if (error !== null && device.ip in setPilotQueue) {
+  const complete = (error: Error | null) => {
+    if (setPilotQueue[mac]?.complete !== complete) return;
+    clearTimeout(timeout);
+    delete setPilotQueue[mac];
+    flushPendingSetPilot(mac);
+    callbacks.forEach((f) => f(error));
+  };
+  const timeout = setTimeout(() => {
+    complete(new Error(`No setPilot response from ${ip} within 3s`));
+  }, 3000);
+  setPilotQueue[mac] = { ip, complete };
+  wiz.log.debug(`[SetPilot][${ip}:${BROADCAST_PORT}] ${msg}`);
+  wiz.socket.send(msg, BROADCAST_PORT, ip, (error: Error | null) => {
+    if (error !== null) {
       wiz.log.debug(
-        `[Socket] Failed to send setPilot to ${device.ip}: ${error.toString()}`
+        `[Socket] Failed to send setPilot to ${ip}: ${error.toString()}`
       );
-      const cbs = setPilotQueue[device.ip];
-      delete setPilotQueue[device.ip];
-      cbs.forEach((f) => f(error));
-      flushPendingSetPilot(device.ip);
+      complete(error);
     }
   });
 }
 
-function flushPendingSetPilot(ip: string) {
-  if (ip in setPilotPending) {
-    const { wiz, device, pilot, callbacks } = setPilotPending[ip];
-    delete setPilotPending[ip];
+function flushPendingSetPilot(mac: string) {
+  if (mac in setPilotPending) {
+    const { wiz, device, pilot, callbacks } = setPilotPending[mac];
+    delete setPilotPending[mac];
     sendSetPilot(wiz, device, pilot, callbacks);
   }
 }
@@ -220,15 +230,8 @@ export function registerDiscoveryHandler(
           callbacks.forEach((f) => f(null, response.result));
         }
       } else if (response.method === "setPilot") {
-        const ip = rinfo.address;
-        if (ip in setPilotQueue) {
-          const callbacks = setPilotQueue[ip];
-          delete setPilotQueue[ip];
-          callbacks.map((f) =>
-            f(response.error ? new Error(response.error.toString()) : null)
-          );
-          flushPendingSetPilot(ip);
-        }
+        const queued = Object.values(setPilotQueue).find(({ ip }) => ip === rinfo.address);
+        queued?.complete(response.error ? new Error(response.error.toString()) : null);
       }
     });
   } catch (err) {
