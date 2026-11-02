@@ -71,7 +71,7 @@ export function getPilot<T>(
   );
 }
 
-const setPilotQueue: { [ip: string]: ((error: Error | null) => void)[] } = {};
+const setPilotQueue: { [ip: string]: (error: Error | null) => void } = {};
 const setPilotPending: {
   [ip: string]: {
     wiz: HomebridgeWizLan;
@@ -107,22 +107,30 @@ function sendSetPilot(
   pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callbacks: ((error: Error | null) => void)[]
 ) {
+  const ip = device.ip;
   const msg = JSON.stringify({
     method: "setPilot",
     env: "pro",
     params: Object.assign({ mac: device.mac, src: "udp" }, pilot),
   });
-  setPilotQueue[device.ip] = callbacks;
-  wiz.log.debug(`[SetPilot][${device.ip}:${BROADCAST_PORT}] ${msg}`);
-  wiz.socket.send(msg, BROADCAST_PORT, device.ip, (error: Error | null) => {
-    if (error !== null && device.ip in setPilotQueue) {
+  const complete = (error: Error | null) => {
+    if (setPilotQueue[ip] !== complete) return;
+    clearTimeout(timeout);
+    delete setPilotQueue[ip];
+    callbacks.forEach((f) => f(error));
+    flushPendingSetPilot(ip);
+  };
+  const timeout = setTimeout(() => {
+    complete(new Error(`No setPilot response from ${ip} within 3s`));
+  }, 3000);
+  setPilotQueue[ip] = complete;
+  wiz.log.debug(`[SetPilot][${ip}:${BROADCAST_PORT}] ${msg}`);
+  wiz.socket.send(msg, BROADCAST_PORT, ip, (error: Error | null) => {
+    if (error !== null) {
       wiz.log.debug(
-        `[Socket] Failed to send setPilot to ${device.ip}: ${error.toString()}`
+        `[Socket] Failed to send setPilot to ${ip}: ${error.toString()}`
       );
-      const cbs = setPilotQueue[device.ip];
-      delete setPilotQueue[device.ip];
-      cbs.forEach((f) => f(error));
-      flushPendingSetPilot(device.ip);
+      complete(error);
     }
   });
 }
@@ -222,12 +230,9 @@ export function registerDiscoveryHandler(
       } else if (response.method === "setPilot") {
         const ip = rinfo.address;
         if (ip in setPilotQueue) {
-          const callbacks = setPilotQueue[ip];
-          delete setPilotQueue[ip];
-          callbacks.map((f) =>
-            f(response.error ? new Error(response.error.toString()) : null)
+          setPilotQueue[ip](
+            response.error ? new Error(response.error.toString()) : null
           );
-          flushPendingSetPilot(ip);
         }
       }
     });

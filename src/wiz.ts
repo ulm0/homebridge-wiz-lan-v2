@@ -197,7 +197,7 @@ export default class HomebridgeWizLan {
         accessory,
       ]);
     } else {
-      existingAccessory.context = device;
+      Object.assign(existingAccessory.context, device);
       this.log.info(`Updating accessory: ${name}${name == existingAccessory.displayName ? "" : ` [formerly ${existingAccessory.displayName}]`}`);
       existingAccessory.displayName = name;
       this.api.updatePlatformAccessories([existingAccessory]);
