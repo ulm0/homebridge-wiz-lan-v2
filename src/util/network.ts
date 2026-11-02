@@ -71,9 +71,11 @@ export function getPilot<T>(
   );
 }
 
-const setPilotQueue: { [ip: string]: (error: Error | null) => void } = {};
+const setPilotQueue: {
+  [mac: string]: { ip: string; complete: (error: Error | null) => void };
+} = {};
 const setPilotPending: {
-  [ip: string]: {
+  [mac: string]: {
     wiz: HomebridgeWizLan;
     device: Device;
     pilot: Partial<BulbPilot> | Partial<SocketPilot>;
@@ -87,10 +89,10 @@ export function setPilot(
   pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callback: (error: Error | null) => void
 ) {
-  if (device.ip in setPilotQueue) {
+  if (device.mac in setPilotQueue) {
     // In-flight: coalesce into pending, keeping all accumulated callbacks
-    const existing = setPilotPending[device.ip];
-    setPilotPending[device.ip] = {
+    const existing = setPilotPending[device.mac];
+    setPilotPending[device.mac] = {
       wiz,
       device,
       pilot,
@@ -107,23 +109,23 @@ function sendSetPilot(
   pilot: Partial<BulbPilot> | Partial<SocketPilot>,
   callbacks: ((error: Error | null) => void)[]
 ) {
-  const ip = device.ip;
+  const { ip, mac } = device;
   const msg = JSON.stringify({
     method: "setPilot",
     env: "pro",
     params: Object.assign({ mac: device.mac, src: "udp" }, pilot),
   });
   const complete = (error: Error | null) => {
-    if (setPilotQueue[ip] !== complete) return;
+    if (setPilotQueue[mac]?.complete !== complete) return;
     clearTimeout(timeout);
-    delete setPilotQueue[ip];
+    delete setPilotQueue[mac];
+    flushPendingSetPilot(mac);
     callbacks.forEach((f) => f(error));
-    flushPendingSetPilot(ip);
   };
   const timeout = setTimeout(() => {
     complete(new Error(`No setPilot response from ${ip} within 3s`));
   }, 3000);
-  setPilotQueue[ip] = complete;
+  setPilotQueue[mac] = { ip, complete };
   wiz.log.debug(`[SetPilot][${ip}:${BROADCAST_PORT}] ${msg}`);
   wiz.socket.send(msg, BROADCAST_PORT, ip, (error: Error | null) => {
     if (error !== null) {
@@ -135,10 +137,10 @@ function sendSetPilot(
   });
 }
 
-function flushPendingSetPilot(ip: string) {
-  if (ip in setPilotPending) {
-    const { wiz, device, pilot, callbacks } = setPilotPending[ip];
-    delete setPilotPending[ip];
+function flushPendingSetPilot(mac: string) {
+  if (mac in setPilotPending) {
+    const { wiz, device, pilot, callbacks } = setPilotPending[mac];
+    delete setPilotPending[mac];
     sendSetPilot(wiz, device, pilot, callbacks);
   }
 }
@@ -228,12 +230,8 @@ export function registerDiscoveryHandler(
           callbacks.forEach((f) => f(null, response.result));
         }
       } else if (response.method === "setPilot") {
-        const ip = rinfo.address;
-        if (ip in setPilotQueue) {
-          setPilotQueue[ip](
-            response.error ? new Error(response.error.toString()) : null
-          );
-        }
+        const queued = Object.values(setPilotQueue).find(({ ip }) => ip === rinfo.address);
+        queued?.complete(response.error ? new Error(response.error.toString()) : null);
       }
     });
   } catch (err) {
